@@ -1,7 +1,18 @@
-dataset_type = "CUHK_SYSU"
 
 # SPECIFY YOUR VARIABLES
 data_root = "/home/reusm/data/sysu_pedes/mmlab"
+
+# ---------------------------------------------
+# --------------- TRANSFORMS ------------------
+# ---------------------------------------------
+
+transfrom_normalize = dict(
+    type="Normalize",
+    mean=[123.675, 116.28, 103.53],
+    std=[58.395, 57.12, 57.375],
+    to_rgb=True,
+)
+transform_pad = dict(type="Pad", size_divisor=1)
 
 train_pipeline = [
     dict(type="LoadImageFromFile"),
@@ -25,20 +36,32 @@ train_pipeline = [
             ],
         ],
     ),
-    dict(
-        type="Normalize",
-        mean=[123.675, 116.28, 103.53],
-        std=[58.395, 57.12, 57.375],
-        to_rgb=True,
-    ),
-    dict(type="Pad", size_divisor=32),
+    transfrom_normalize,
+    transform_pad,
     dict(type="PackReIDDetInputs"),
 ]
 
+# NOTE: Original used 'MultiScaleFlipAug'. But it was useless with its config.
+# So we replace with a simple list.
+test_pipeline = [
+    dict(type="LoadImageFromFile"),
+    dict(type="LoadReIDDetAnnotations"),
+    dict(type="Resize", scale=(1500, 900), keep_ratio=True),
+    transfrom_normalize,
+    transform_pad,
+    dict(type="PackReIDDetInputs"),
+]
+
+# ---------------------------------------------
+# --------------- DATALOADERS -----------------
+# ---------------------------------------------
+
+dataset_type = "CUHK_SYSU"
+num_workers = 2
 train_dataloader = dict(
     shuffle=True,
     batch_size=8,
-    num_workers=4,
+    num_workers=num_workers,
     persistent_workers=True,
     dataset=dict(
         type=dataset_type,
@@ -46,5 +69,18 @@ train_dataloader = dict(
         ann_file="annotations/annotations_train.json",
         data_root=data_root,
         pipeline=train_pipeline,
+    ),
+)
+test_dataloader = dict(
+    shuffle=False,
+    batch_size=16,
+    num_workers=num_workers,
+    persistent_workers=True,
+    dataset=dict(
+        type=dataset_type,
+        filter_cfg=dict(filter_empty_gt=False),
+        ann_file="annotations/annotations_test.json",
+        data_root=data_root,
+        pipeline=test_pipeline,
     ),
 )
