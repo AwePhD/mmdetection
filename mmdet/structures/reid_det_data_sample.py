@@ -17,6 +17,8 @@ class ReIDDetInstanceData(Protocol):
     instead of a classic list of InstanceData which is not consistent with
     the rest of mmdet. We might update the annotations from this base method
     later and keep this protocol as implicit.
+    TODO: Do one protocol for GT and another one for prediction. The instance
+    does not the same fields inside them.
     """
     # Detection labels, the name is confusing but we keep to be compatible
     # with existing Detector in mmdet.
@@ -26,7 +28,7 @@ class ReIDDetInstanceData(Protocol):
     #: The detections, some annotations in the test set do not have detections
     #: (SYSU).
     bboxes: NotRequired[HorizontalBoxes]
-    #: Only inside the SYSU evaluation annotations
+    #: Only inside the SYSU evaluation annotations on gt.
     eval_type: NotRequired[Literal["query"] | Literal["gallery"]]
 
 
