@@ -1,15 +1,19 @@
 import torch
 from mmengine.structures import InstanceData
 from torch import Tensor
+from torch.nn import functional as F
 
 from mmdet.models import DeformableDETR
 from mmdet.models.reid.detection.base_reid_detection import BaseReIDDetection
 from mmdet.models.reid_heads import PSTRHeadReID
 from mmdet.models.task_modules.assigners import AssignResult, BaseAssigner
+from mmdet.models.utils import samplelist_boxtype2tensor
 from mmdet.registry import MODELS
-from mmdet.structures import OptSampleList, SampleList
 from mmdet.structures.bbox import bbox_cxcywh_to_xyxy
-from mmdet.structures.reid_det_data_sample import ReIDDetInstanceData
+from mmdet.structures.reid_det_data_sample import (ReIDDetInstanceData,
+                                                   ReIDDetSampleList,
+                                                   OptReIDDetSampleList)
+from mmdet.utils.typing_utils import InstanceList
 
 
 @MODELS.register_module()
@@ -33,7 +37,7 @@ class PSTR(BaseReIDDetection):
     def forward_detector_no_head(
         self,
         multi_scale_features_maps: tuple[Tensor, ...],
-        data_samples: OptSampleList = None,
+        data_samples: OptReIDDetSampleList = None,
     ) -> tuple[dict, dict]:
         """
         Similar of forward_transformer of DetectionTransformer base class.
@@ -44,8 +48,8 @@ class PSTR(BaseReIDDetection):
         Args:
             multi_scale_features_maps (tuple[Tensor, ...]): features maps from
                 the neck with multiple scale, one scale by features map.
-            data_samples (OptSampleList, optional): detections compliant data
-                sample. Defaults to None.
+            data_samples (OptReIDDetSampleList, optional): detections compliant
+                data sample. Defaults to None.
 
         Returns:
             tuple[dict, dict]: 2-tuple of the dicitonnaries for the input of
@@ -82,7 +86,7 @@ class PSTR(BaseReIDDetection):
     def _forward(
         self,
         inputs: Tensor,
-        data_samples: SampleList,
+        data_samples: ReIDDetSampleList,
     ) -> tuple[Tensor, Tensor, list[Tensor]]:
         multi_scale_features_maps = self.extract_feat(inputs)
 
@@ -109,9 +113,105 @@ class PSTR(BaseReIDDetection):
         )
         return return_value
 
-    def predict(self, inputs: Tensor,
-                data_samples: SampleList) -> list[ReIDDetInstanceData]:
-        return self._forward(inputs, data_samples)
+    def _predict_single_sample(self, class_scores: Tensor, bboxes: Tensor,
+                               reid_features: Tensor, img_metainfo: dict,
+                               rescale: bool) -> InstanceData:
+        """
+        Create prediction from the model forward outputs.
+        It only keeps max_per_img (in test_cfg) detections. It also formats
+        the classification scores to a probability and the label. Then,
+        it restaure the detections to the images scale, depending to the
+        rescale option. Eventually, insert the reid_features.
+
+        Args:
+            class_scores (Tensor): Classification scores from the detector's
+                bbox head last layer. (num_queries, num_classes = 1)
+            bboxes (Tensor): bounding boxes from the detector's bbox head last
+                layer (regression). (num_queries, bbox_dim = 4)
+            reid_features (Tensor): ReID features of the ReID head.
+                (num_queries, reid_dimension = 256)
+            img_metainfo (dict): Metainformation of the image.
+            rescale (bool): Whether to rescale the bbox or not, used when the
+                input has been resized in the pre-process.
+
+        Returns:
+            InstanceData: The instance data (detections) filled with the label,
+                the probability, the bbox and the ReID features. Also, it
+                should follow the implicit protocol `ReIDDetInstanceData`.
+        """
+        assert len(class_scores) == len(bboxes)  # num_queries
+        num_queries = len(class_scores)
+
+        max_per_img = self.test_cfg.get('max_per_img', num_queries)
+        img_shape = img_metainfo['img_shape']
+
+        if self.detector.bbox_head.loss_cls.use_sigmoid:
+            class_scores = class_scores.sigmoid()
+            scores, indexes = class_scores.view(-1).topk(max_per_img)
+            det_labels = indexes % self.detector.bbox_head.num_classes
+            bbox_index = indexes // self.detector.bbox_head.num_classes
+        else:
+            scores, det_labels = F.softmax(
+                class_scores, dim=-1)[..., :-1].max(-1)
+            scores, bbox_index = scores.topk(max_per_img)
+            det_labels = det_labels[bbox_index]
+        bboxes = bbox_cxcywh_to_xyxy(bboxes[bbox_index])
+
+        bboxes[:, 0::2] = bboxes[:, 0::2] * img_shape[1]
+        bboxes[:, 1::2] = bboxes[:, 1::2] * img_shape[0]
+        bboxes[:, 0::2].clamp_(min=0, max=img_shape[1])
+        bboxes[:, 1::2].clamp_(min=0, max=img_shape[0])
+
+        if rescale:
+            assert img_metainfo.get('scale_factor') is not None
+            bboxes /= bboxes.new_tensor(img_metainfo['scale_factor']).repeat(
+                (1, 2))
+
+        results = InstanceData()
+        results.bboxes = bboxes
+        results.scores = scores
+        results.labels = det_labels
+        results.reid_features = reid_features
+        return results
+
+    def predict(self,
+                batch_inputs: Tensor,
+                batch_data_samples: ReIDDetSampleList,
+                rescale: bool = True) -> ReIDDetSampleList:
+        assert len(batch_data_samples) == len(batch_data_samples)
+        batch_size = len(batch_data_samples)
+
+        (all_layers_outputs_classes, all_layers_outputs_coords,
+         all_layers_reid_features) = self._forward(batch_inputs,
+                                                   batch_data_samples)
+        batch_outputs = {
+            "class": all_layers_outputs_classes[-1],
+            "bbox": all_layers_outputs_coords[-1],
+            "reid": all_layers_reid_features[-1],
+        }
+
+        prediction_instances = []
+        for i in range(batch_size):
+            class_score = batch_outputs["class"][i]
+            bbox = batch_outputs["bbox"][i],
+            reid_features = batch_outputs["reid"][i],
+
+            metainfo = batch_data_samples[i].metadinfo
+
+            # Store prediction in the data_sample
+            prediction_instances.append(
+                self._predict_single_sample(
+                    class_score,
+                    bbox,
+                    reid_features,
+                    metainfo,
+                    rescale,
+                ))
+
+        # add_pred_to_datasample from BaseDetector
+        batch_data_samples = self.add_pred_to_datasample(
+            batch_data_samples, prediction_instances)
+        return batch_data_samples
 
     def _get_targets_single_layer_sample(
         self,
@@ -256,7 +356,7 @@ class PSTR(BaseReIDDetection):
         return torch.stack(all_layers_batch_assigned_person_ids)
 
     def loss(self, inputs: Tensor,
-             data_samples: SampleList) -> dict[str, Tensor]:
+             data_samples: ReIDDetSampleList) -> dict[str, Tensor]:
         # Prepare instances variables
         batch_gt_instances = []
         batch_img_metas = []
@@ -313,3 +413,32 @@ class PSTR(BaseReIDDetection):
         reid_losses = self.reid.loss(**reid_loss_inputs)
 
         return detection_losses | reid_losses
+
+    def add_pred_to_datasample(
+            self, data_samples: ReIDDetSampleList,
+            results_list: InstanceList) -> ReIDDetSampleList:
+        """Add predictions to `DetDataSample`.
+
+        Args:
+            data_samples (list[:obj:`DetDataSample`], optional): A batch of
+                data samples that contain annotations and predictions.
+            results_list (list[:obj:`InstanceData`]): Detection results of
+                each image.
+
+        Returns:
+            list[:obj:`DetDataSample`]: Detection results of the
+            input images. Each DetDataSample usually contain
+            'pred_instances'. And the ``pred_instances`` usually
+            contains following keys.
+
+                - scores (Tensor): Classification scores, has a shape
+                    (num_instance, )
+                - labels (Tensor): Labels of bboxes, has a shape
+                    (num_instances, ).
+                - bboxes (Tensor): Has a shape (num_instances, 4),
+                    the last dimension 4 arrange as (x1, y1, x2, y2).
+        """
+        for data_sample, pred_instances in zip(data_samples, results_list):
+            data_sample.pred_instances = pred_instances
+        samplelist_boxtype2tensor(data_samples)
+        return data_samples
