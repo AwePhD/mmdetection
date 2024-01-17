@@ -493,15 +493,24 @@ class LoadReIDDetAnnotations(LoadAnnotations):
         gt_bboxes = []
         gt_ignore_flags = []
         for detection_annotation in results.get("detection_annotations", []):
+            # SYSU evaluation annotations might have no bbox, distractors case.
+            if "bbox" not in detection_annotation:
+                continue
+
             gt_bboxes.append(detection_annotation["bbox"])
             gt_ignore_flags.append(
                 detection_annotation.get("ignore_flag", 0)
             )
         results["gt_ignore_flags"] = np.array(gt_ignore_flags, dtype=bool)
 
+        # If there is no annotations in the frame, end of function.
+        if not gt_bboxes:
+            return
+
         if self.box_type is None:
-            results["gt_bboxes"] = np.array(gt_bboxes, dtype=np.float32).reshape(
-                (-1, 4)
+            results["gt_bboxes"] = (
+                np.array(gt_bboxes, dtype=np.float32)
+                .reshape((-1, 4))
             )
         else:
             _, box_type_cls = get_box_type(self.box_type)

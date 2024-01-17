@@ -1,7 +1,8 @@
-from typing import Protocol
+from typing import Protocol, Literal
 
 from mmengine.structures import BaseDataElement, InstanceData
 from torch import LongTensor
+from typing_extensions import NotRequired
 
 from mmdet.structures.bbox import HorizontalBoxes
 
@@ -22,8 +23,11 @@ class ReIDDetInstanceData(Protocol):
     labels: LongTensor
     #: The person IDs
     reid_labels: LongTensor
-    #: The detections
-    bboxes: HorizontalBoxes
+    #: The detections, some annotations in the test set do not have detections
+    #: (SYSU).
+    bboxes: NotRequired[HorizontalBoxes]
+    #: Only inside the SYSU evaluation annotations
+    eval_type: NotRequired[Literal["query"] | Literal["gallery"]]
 
 
 class ReIDDetDataSample(BaseDataElement):

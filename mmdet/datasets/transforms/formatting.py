@@ -654,6 +654,7 @@ class PackReIDDetInputs(BaseTransform):
         "gt_bboxes": "bboxes",
         "gt_bboxes_labels": "labels",
         "gt_bboxes_person_ids": "reid_labels",
+        "eval_type": "eval_type",
     }
 
     def __init__(self, meta_keys=DEFAULT_META_KEYS):
