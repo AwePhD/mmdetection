@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from mmengine.model import BaseModel
+from mmengine.model import BaseModule
 from torch import Tensor
 from torch.nn import functional as F
 
@@ -18,9 +18,8 @@ LOSS_DICT_KEY_TEMPLATE_OIM = "d{}.loss_oim_s{}"
 LOSS_DICT_KEY_TEMPLATE_TRIPLET = "d{}.loss_tri_s{}"
 
 
-# TODO Add docstring
 @MODELS.register_module()
-class PSTRHeadReID(BaseModel):
+class PSTRHeadReID(BaseModule):
     """
     PSTR Head ReID, computes the ReID features from PSTR detections output
     and frame's features maps.

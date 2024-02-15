@@ -351,10 +351,8 @@ class PartAttentionDecoder(BaseModule):
 
     Args:
         num_layers (int): Number of decoder layers.
-        layer_cfg (:obj:`ConfigDict` or dict): the config of each encoder
+        part_layer_cfg (:obj:`ConfigDict` or dict): the config of each encoder
             layer. All the layers will share the same config.
-        post_norm_cfg (:obj:`ConfigDict` or dict, optional): Config of the
-            post normalization layer. Defaults to `LN`.
         init_cfg (:obj:`ConfigDict` or dict, optional): the config to control
             the initialization. Defaults to None.
     """
