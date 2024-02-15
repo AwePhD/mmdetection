@@ -32,8 +32,6 @@ train_pipeline = [
             ],
         ],
     ),
-    transfrom_normalize,
-    transform_pad,
     dict(type="PackReIDDetInputs"),
 ]
 
@@ -45,8 +43,6 @@ test_pipeline = [
     # flip and flip_direction are in the default meta_keys of PackReIDDetInputs
     dict(type="RandomFlip", prob=0.0),
     dict(type="Resize", scale=(1500, 900), keep_ratio=True),
-    transfrom_normalize,
-    transform_pad,
     dict(type="PackReIDDetInputs"),
 ]
 
