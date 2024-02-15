@@ -1,10 +1,23 @@
-from typing import Protocol, Literal
+from typing import Protocol, Literal, TypeAlias
 
 from mmengine.structures import BaseDataElement, InstanceData
 from torch import LongTensor
 from typing_extensions import NotRequired
 
 from mmdet.structures.bbox import HorizontalBoxes
+
+# NOTE: Tensor in Instance data does not accept string values such as "query"
+# or "gallery". So query evaluation annotations are set to True, else (gallery)
+# are set to false. Since this mapping might seem confusing, we type it.
+EvalTypeQuery: TypeAlias = Literal[True]
+EvalTypeGallery: TypeAlias = Literal[False]
+EvalType: TypeAlias = EvalTypeQuery | EvalTypeGallery
+
+
+def get_eval_type_from_str(eval_type: str) -> EvalType:
+    assert eval_type in ("query", "gallery")
+
+    return eval_type == "query"
 
 
 class ReIDDetInstanceData(Protocol):
@@ -29,7 +42,7 @@ class ReIDDetInstanceData(Protocol):
     #: (SYSU).
     bboxes: NotRequired[HorizontalBoxes]
     #: Only inside the SYSU evaluation annotations on gt.
-    eval_type: NotRequired[Literal["query"] | Literal["gallery"]]
+    eval_type: NotRequired[EvalType]
 
 
 class ReIDDetDataSample(BaseDataElement):

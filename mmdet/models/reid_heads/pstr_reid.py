@@ -83,6 +83,7 @@ class PSTRHeadReID(BaseModel):
     ) -> Tensor:
         """
         Compute raw ReID features from detector and features maps.
+        n_decoder_layers=1 in inference and n_decoder_layers=3 in training.
 
         Args:
             detection_decoder_states (Tensor): The outputs of detector which
@@ -102,14 +103,17 @@ class PSTRHeadReID(BaseModel):
             Tensor: Result of the raw ReID features
             (n_scales, n_decoder_layers, bs, n_queries, n_dim_reid)
         """
+        n_scales = len(multi_scale_features_maps_flattened)
+
         # Inference ReID: do not input from all 3 layers of the decoder.
         if not self.training:
             assert detection_decoder_states.shape[0] == 1
-            last_state = detection_decoder_states
+            last_state = detection_decoder_states.squeeze(0)
 
             assert references.shape[0] == 1
-            reference = references
+            reference = references.squeeze(0)
 
+            # (n_scales) [(bs, num_queries, n_dim_reid)]
             inter_reid_states = [
                 self.decoder(
                     query=last_state,
@@ -121,14 +125,14 @@ class PSTRHeadReID(BaseModel):
                 multi_scale_features_maps_flattened
             ]
 
-            return torch.stack(inter_reid_states).view(
-                len(multi_scale_features_maps_flattened), 1, -1)
+            # (n_scales, n_decoder_layers=1, bs, num_queries, n_dim_reid)
+            inter_reid_states = torch.stack(inter_reid_states).unsqueeze(1)
+            return inter_reid_states
 
         number_decoder_layers = references.shape[0]
         assert number_decoder_layers == N_PSTR_DECODER_LAYERS, \
             f"PSTR needs exactly {N_PSTR_DECODER_LAYERS} layers from decoder"
 
-        number_scales = len(multi_scale_features_maps_flattened)
         inter_reid_states = [
             self.decoder(
                 query=detection_decoder_states[i_layer],
@@ -140,12 +144,12 @@ class PSTRHeadReID(BaseModel):
             # Per layer of decoder in detector
             for i_layer in range(number_decoder_layers)
             # Per level of scale in backbone/neck
-            for i_scale in range(number_scales)
+            for i_scale in range(n_scales)
         ]
 
         inter_reid_states_stacked = torch.stack(inter_reid_states)
         inter_reid_states_reshaped = inter_reid_states_stacked.view(
-            number_scales, number_decoder_layers,
+            n_scales, number_decoder_layers,
             *inter_reid_states_stacked.shape[1:]
             # Delete deformable detr dimension, only use one in Deformable
             # DETR in PSTR.
@@ -165,9 +169,8 @@ class PSTRHeadReID(BaseModel):
         Compute ReID features from detector and features maps.
 
         Args:
-            detection_decoder_states (Tensor): The outputs of detector which
-                have one in inference and 3 (number of decoder layers) in
-                training. (n_decoder_layers, bs, n_queries, n_dim_det)
+            detection_decoder_states (Tensor): The outputs of detector
+                (n_decoder_layers, bs, n_queries, n_dim_det).
             references (Tensor): References point from deformable attention.
                 (n_decoder_layers, bs, n_queries, 4)
             spatial_shapes (Tensor): The dimension of features maps used in
@@ -181,6 +184,8 @@ class PSTRHeadReID(BaseModel):
         Returns:
             list[Tensor]: The list of ReID features by scale, n_scale = 3.
                 Each scale is (n_decoder_layers, bs, n_queries, n_dim_reid).
+                n_decoder_layers (in the return) depends if the model perform
+                inference or loss computation, see _forward_decoder.
         """
         assert detection_decoder_states.shape[0] == references.shape[0]
         assert len(multi_scale_features_maps) == 3
@@ -193,7 +198,16 @@ class PSTRHeadReID(BaseModel):
             for feature_map in list(multi_scale_features_maps)
         ]
 
-        # (scales, layers_level, batch_size, num_queries, n_features)
+        # Inference mode needs output from last layer of the detector.
+        # Other layers are only use during training to make it easier for the
+        # model to learn.
+        if not self.training:
+            # (1, bs, n_queries, n_dim_det)
+            detection_decoder_states = detection_decoder_states[-1:]
+            references = references[-1:]  # (1, bs, n_queries, 4)
+
+        # NOTE: n_decoder_layers=3 if self.training else n_decoder_layers=1
+        # (scales, n_decoder_layers, batch_size, num_queries, n_features)
         inter_reid_states = self._forward_decoder(
             detection_decoder_states,
             references,
@@ -202,7 +216,8 @@ class PSTRHeadReID(BaseModel):
             multi_scale_features_maps_flattened,
         )
 
-        # [layers_level, ...] (scales)
+        # Center the reid features, average over the num_queries.
+        # (n_scales) [n_decoder_layers, bs, num_queries, n_features]
         reid_outputs: list[Tensor] = [
             inter_reid_state -
             torch.mean(inter_reid_state, dim=2, keepdim=True)

@@ -113,9 +113,9 @@ class PSTR(BaseReIDDetection):
         )
         return return_value
 
-    def _predict_single_sample(self, class_scores: Tensor, bboxes: Tensor,
-                               reid_features: Tensor, img_metainfo: dict,
-                               rescale: bool) -> InstanceData:
+    def _predict_single_img(self, class_scores: Tensor, bboxes: Tensor,
+                            reid_features: Tensor, img_metainfo: dict,
+                            rescale: bool) -> InstanceData:
         """
         Create prediction from the model forward outputs.
         It only keeps max_per_img (in test_cfg) detections. It also formats
@@ -129,7 +129,7 @@ class PSTR(BaseReIDDetection):
             bboxes (Tensor): bounding boxes from the detector's bbox head last
                 layer (regression). (num_queries, bbox_dim = 4)
             reid_features (Tensor): ReID features of the ReID head.
-                (num_queries, reid_dimension = 256)
+                (num_queries, n_reid_dim)
             img_metainfo (dict): Metainformation of the image.
             rescale (bool): Whether to rescale the bbox or not, used when the
                 input has been resized in the pre-process.
@@ -184,25 +184,29 @@ class PSTR(BaseReIDDetection):
         (all_layers_outputs_classes, all_layers_outputs_coords,
          all_layers_reid_features) = self._forward(batch_inputs,
                                                    batch_data_samples)
+
+        # [n_scales=3] (n_decoder_layers=1, bs, n_queries, n_dim_reid)
+        # -> (bs, n_queries, n_scales * n_dim_reid)
+        reid_features = torch.cat(all_layers_reid_features, dim=-1).squeeze(0)
         batch_outputs = {
-            "class": all_layers_outputs_classes[-1],
-            "bbox": all_layers_outputs_coords[-1],
-            "reid": all_layers_reid_features[-1],
+            "class_scores": all_layers_outputs_classes[-1],
+            "bboxes": all_layers_outputs_coords[-1],
+            "reid": reid_features,
         }
 
         prediction_instances = []
         for i in range(batch_size):
-            class_score = batch_outputs["class"][i]
-            bbox = batch_outputs["bbox"][i],
-            reid_features = batch_outputs["reid"][i],
+            class_scores = batch_outputs["class_scores"][i]
+            bboxes = batch_outputs["bboxes"][i]
+            reid_features = batch_outputs["reid"][i]
 
-            metainfo = batch_data_samples[i].metadinfo
+            metainfo = batch_data_samples[i].metainfo
 
             # Store prediction in the data_sample
             prediction_instances.append(
-                self._predict_single_sample(
-                    class_score,
-                    bbox,
+                self._predict_single_img(
+                    class_scores,
+                    bboxes,
                     reid_features,
                     metainfo,
                     rescale,

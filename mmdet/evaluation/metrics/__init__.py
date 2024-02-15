@@ -19,6 +19,7 @@ from .openimages_metric import OpenImagesMetric
 from .ov_coco_metric import OVCocoMetric
 from .refexp_metric import RefExpMetric
 from .refseg_metric import RefSegMetric
+from .reid_det_metric import ReIDDetMetric
 from .reid_metric import ReIDMetrics
 from .semseg_metric import SemSegMetric
 from .voc_metric import VOCMetric
@@ -31,5 +32,5 @@ __all__ = [
     'MOTChallengeMetric', 'CocoVideoMetric', 'ReIDMetrics', 'YouTubeVISMetric',
     'COCOCaptionMetric', 'SemSegMetric', 'RefSegMetric', 'RefExpMetric',
     'gRefCOCOMetric', 'DODCocoMetric', 'DumpODVGResults', 'Flickr30kMetric',
-    'OVCocoMetric'
+    'OVCocoMetric', 'ReIDDetMetric',
 ]

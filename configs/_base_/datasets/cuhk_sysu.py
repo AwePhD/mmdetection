@@ -1,5 +1,3 @@
-from path import Path
-
 # ---------------------------------------------
 # --------------- TRANSFORMS ------------------
 # ---------------------------------------------
@@ -43,7 +41,9 @@ train_pipeline = [
 # So we replace with a simple list.
 test_pipeline = [
     dict(type="LoadImageFromFile"),
-    dict(type="LoadReIDDetAnnotations"),
+    dict(type="LoadReIDDetAnnotations", is_eval=True),
+    # flip and flip_direction are in the default meta_keys of PackReIDDetInputs
+    dict(type="RandomFlip", prob=0.0),
     dict(type="Resize", scale=(1500, 900), keep_ratio=True),
     transfrom_normalize,
     transform_pad,
@@ -54,14 +54,14 @@ test_pipeline = [
 # --------------- DATALOADERS -----------------
 # ---------------------------------------------
 
-data_root = f"{Path.cwd()}/data/sysu_pedes/mmlab"
+data_root = "/dataset"
 dataset_type = "CUHK_SYSU"
 num_workers = 2
 train_dataloader = dict(
     shuffle=True,
     batch_size=8,
     num_workers=num_workers,
-    persistent_workers=True,
+    pin_memory=True,
     dataset=dict(
         type=dataset_type,
         filter_cfg=dict(filter_empty_gt=False),
@@ -72,9 +72,9 @@ train_dataloader = dict(
 )
 test_dataloader = dict(
     shuffle=False,
-    batch_size=16,
+    batch_size=1,
     num_workers=num_workers,
-    persistent_workers=True,
+    pin_memory=True,
     dataset=dict(
         type=dataset_type,
         filter_cfg=dict(filter_empty_gt=False),
@@ -83,3 +83,14 @@ test_dataloader = dict(
         pipeline=test_pipeline,
     ),
 )
+
+# ---------------------------------------------
+# ----------------- EVALUATION ----------------
+# ---------------------------------------------
+_evaluator = dict(
+    type='ReIDDetMetric',
+    metric='mAP',
+    metric_options=dict(
+        n_samples=641, gallery_threshold=.15, gallery_size=100))
+test_evaluator = _evaluator
+test_cfg = dict(type='TestLoop')

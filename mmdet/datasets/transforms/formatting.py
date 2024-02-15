@@ -8,12 +8,8 @@ from mmcv.transforms.base import BaseTransform
 from mmengine.structures import InstanceData, PixelData
 
 from mmdet.registry import TRANSFORMS
-from mmdet.structures import (
-    DetDataSample,
-    ReIDDataSample,
-    TrackDataSample,
-    ReIDDetDataSample,
-)
+from mmdet.structures import (DetDataSample, ReIDDataSample, ReIDDetDataSample,
+                              TrackDataSample)
 from mmdet.structures.bbox import BaseBoxes
 
 
@@ -649,7 +645,7 @@ class PackReIDDetInputs(BaseTransform):
         "gt_bboxes": "bboxes",
         "gt_bboxes_labels": "labels",
         "gt_bboxes_person_ids": "reid_labels",
-        "eval_type": "eval_type",
+        "eval_types": "eval_types",
     }
 
     def __init__(self, meta_keys=DEFAULT_META_KEYS):

@@ -790,3 +790,40 @@ def print_map_summary(mean_ap,
         table = AsciiTable(table_data)
         table.inner_footing_row_border = True
         print_log('\n' + table.table, logger=logger)
+
+
+def compute_average_precision(labels: np.ndarray, scores: np.ndarray) -> float:
+    """
+    Compute the Average Precision (AP) in the case of a single class. labels
+    indicates the presence of ground truth. scores represent the model
+    probabiliy or score or confidence.
+
+    Args:
+        - labels np.ndarray[dim=(n), dtype=bool]: the i-th element is True
+            if it's a true positive, else False.
+        - scores np.ndarray[dim=(n), dtype=float]: the i-th element's
+            confidence/score/probability. If the score is high then the model
+            is "confident" that the corresponding i-th element in label is
+            set to True.
+
+    Returns:
+        float: Computed AP.
+    """
+    assert len(labels) == len(scores)
+    assert labels.ndim == 1 and scores.ndim == 1
+
+    count_tp = labels.sum()
+    if count_tp == 0:
+        return count_tp
+
+    # best first
+    indices_by_scores = scores.argsort()[::-1]
+    labels_ranked = labels[indices_by_scores]
+
+    tps = labels_ranked.cumsum(0)
+
+    precisions = tps / np.arange(1, len(tps) + 1)
+    precisions_at_delta_recall = precisions[labels_ranked]
+    mean_average_precision = precisions_at_delta_recall.sum() / count_tp
+
+    return mean_average_precision
