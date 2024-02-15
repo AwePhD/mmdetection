@@ -15,6 +15,9 @@ from mmdet.registry import TRANSFORMS
 from mmdet.structures.bbox import get_box_type
 from mmdet.structures.bbox.box_type import autocast_box_type
 from mmdet.structures.mask import BitmapMasks, PolygonMasks
+from mmdet.structures.reid_det_data_sample import get_eval_type_from_str
+
+NO_DETECTION = [0, 0, 0, 0]
 
 
 @TRANSFORMS.register_module()
@@ -466,6 +469,7 @@ class LoadReIDDetAnnotations(LoadAnnotations):
 
     def __init__(
         self,
+        is_eval: bool = True,
         with_mask: bool = True,
         poly2mask: bool = False,
         box_type: str = "hbox",
@@ -483,6 +487,7 @@ class LoadReIDDetAnnotations(LoadAnnotations):
         )
         self.with_mask = False
         self.with_seg = False
+        self.is_eval = is_eval
 
     def _load_bboxes(self, results: dict) -> None:
         """Private function to load bounding box annotations.
@@ -496,13 +501,14 @@ class LoadReIDDetAnnotations(LoadAnnotations):
         gt_ignore_flags = []
         for detection_annotation in results.get("detection_annotations", []):
             # SYSU evaluation annotations might have no bbox, distractors case.
+            # Although, InstanceData are not allowed to have empty fields.
+            # So we add a dummy bbox value.
             if "bbox" not in detection_annotation:
+                gt_bboxes.append(NO_DETECTION)
                 continue
 
             gt_bboxes.append(detection_annotation["bbox"])
-            gt_ignore_flags.append(
-                detection_annotation.get("ignore_flag", 0)
-            )
+            gt_ignore_flags.append(detection_annotation.get("ignore_flag", 0))
         results["gt_ignore_flags"] = np.array(gt_ignore_flags, dtype=bool)
 
         # If there is no annotations in the frame, end of function.
@@ -511,9 +517,7 @@ class LoadReIDDetAnnotations(LoadAnnotations):
 
         if self.box_type is None:
             results["gt_bboxes"] = (
-                np.array(gt_bboxes, dtype=np.float32)
-                .reshape((-1, 4))
-            )
+                np.array(gt_bboxes, dtype=np.float32).reshape((-1, 4)))
         else:
             _, box_type_cls = get_box_type(self.box_type)
             results["gt_bboxes"] = box_type_cls(gt_bboxes, dtype=torch.float32)
@@ -532,9 +536,24 @@ class LoadReIDDetAnnotations(LoadAnnotations):
         for detection_annotation in results.get("detection_annotations", []):
             gt_bboxes_labels.append(detection_annotation["label"])
             gt_bboxes_person_ids.append(detection_annotation["person_id"])
-        results["gt_bboxes_labels"] = np.array(gt_bboxes_labels, dtype=np.int64)
-        results["gt_bboxes_person_ids"] = np.array(gt_bboxes_person_ids, dtype=np.int64)
+        results["gt_bboxes_labels"] = np.array(
+            gt_bboxes_labels, dtype=np.int64)
+        results["gt_bboxes_person_ids"] = np.array(
+            gt_bboxes_person_ids, dtype=np.int64)
 
+    def _load_eval_type(self, results) -> dict:
+        results["eval_types"] = np.array([
+            get_eval_type_from_str(detection_annotation["eval_type"])
+            for detection_annotation in results["detection_annotations"]
+        ], dtype=bool)
+
+    def transform(self, results: dict) -> dict:
+        _results = super().transform(results)
+
+        if self.is_eval:
+            self._load_eval_type(results)
+
+        return _results
 
 @TRANSFORMS.register_module()
 class LoadPanopticAnnotations(LoadAnnotations):

@@ -1,12 +1,13 @@
 _base_ = [
     "../../_base_/default_runtime.py",
     "../../_base_/datasets/cuhk_sysu.py",
+    # "../../_base_/debug.py",
 ]
 
 detector = dict(
     type="DeformableDETR",
     num_queries=100,
-    num_feature_levels=1,
+    num_feature_levels=3,
     with_box_refine=False,
     as_two_stage=False,
     data_preprocessor=dict(
@@ -104,7 +105,8 @@ reid = dict(  # PSTRHeadReID
     flag_tri=True,
     queue_size=5000)
 
-model = dict(type="PSTR", detector=detector, reid=reid)
+model = dict(
+    type="PSTR", detector=detector, reid=reid, test_cfg=_base_.test_cfg)
 
 model["train_cfg"] = dict(
     assigner=dict(
@@ -138,8 +140,6 @@ optim_wrapper = dict(
 
 max_epochs = 24
 train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs)
-# TODO Change when training is ok
-test_cfg = None
 
 param_scheduler = [
     # Warmup
@@ -149,8 +149,8 @@ param_scheduler = [
         end_factor=1,
         by_epoch=False,
         begin=0,
-        end=63, # 500 // 8 (sysu batch size) + 1
-        # end=(500 // batch_size) + 1, # 500 samples ~= 500 / batch_size iterations
+        end=63,  # 500 // 8 (sysu batch size) + 1
+        # end=(500 // batch_size) + 1, 500 samples ~= 500/batch_size iterations
     ),
     # Epoch update
     dict(type='MultiStepLR', milestones=[19, 23], gamma=0.1)

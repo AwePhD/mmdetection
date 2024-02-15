@@ -6,11 +6,10 @@ import math
 import warnings
 
 import torch
-from torch import nn, Tensor
 import torch.nn.functional as F
+from mmengine.model import BaseModule, ModuleList, xavier_init
+from torch import Tensor, nn
 
-from mmengine.model import ModuleList
-from mmengine.model import BaseModule, constant_init, xavier_init
 from mmdet.utils import ConfigType, OptConfigType
 
 
@@ -46,19 +45,17 @@ class PartAttention(BaseModule):
         num_heads: int = 8,
         num_levels: int = 4,
         num_points: int = 4,
-        im2col_step: int =64,
-        dropout: float =0.1,
-        batch_first: bool =False,
+        im2col_step: int = 64,
+        dropout: float = 0.1,
+        batch_first: bool = False,
         norm_cfg: OptConfigType = None,
         init_cfg: OptConfigType = None,
     ):
         super().__init__(init_cfg)
 
         if embed_dims % num_heads != 0:
-            raise ValueError(
-                f"embed_dims must be divisible by num_heads, "
-                f"but got {embed_dims} and {num_heads}"
-            )
+            raise ValueError(f"embed_dims must be divisible by num_heads, "
+                             f"but got {embed_dims} and {num_heads}")
 
         dim_per_head = embed_dims // num_heads
         self.norm_cfg = norm_cfg
@@ -68,8 +65,8 @@ class PartAttention(BaseModule):
         def _is_power_of_2(n):
             if (not isinstance(n, int)) or (n < 0):
                 raise ValueError(
-                    "invalid input for _is_power_of_2: {} (type: {})".format(n, type(n))
-                )
+                    "invalid input for _is_power_of_2: {} (type: {})".format(
+                        n, type(n)))
             return (n & (n - 1) == 0) and n != 0
 
         if not _is_power_of_2(dim_per_head):
@@ -77,8 +74,7 @@ class PartAttention(BaseModule):
                 "You'd better set embed_dims in "
                 "MultiScaleDeformAttention to make "
                 "the dimension of each attention head a power of 2 "
-                "which is more efficient in our CUDA implementation."
-            )
+                "which is more efficient in our CUDA implementation.")
 
         self.im2col_step = im2col_step
         self.embed_dims = embed_dims
@@ -86,25 +82,23 @@ class PartAttention(BaseModule):
         self.num_heads = num_heads
         self.num_points = num_points
         self.sampling_offsets = nn.Linear(
-            embed_dims, num_heads * num_levels * num_points * 2
-        )
+            embed_dims, num_heads * num_levels * num_points * 2)
         self.value_proj = nn.Linear(embed_dims, embed_dims)
-        self.normalize_fact = float(embed_dims / num_heads) ** -0.5
+        self.normalize_fact = float(embed_dims / num_heads)**-0.5
         self.init_weights()
 
     def init_weights(self):
         """Default initialization for Parameters of Module."""
         xavier_init(self.sampling_offsets, distribution='uniform')
 
-        thetas = torch.arange(self.num_heads, dtype=torch.float32) * (
-            2.0 * math.pi / self.num_heads
-        )
+        thetas = torch.arange(
+            self.num_heads,
+            dtype=torch.float32) * (2.0 * math.pi / self.num_heads)
         grid_init = torch.stack([thetas.cos(), thetas.sin()], -1)
-        grid_init = (
-            (grid_init / grid_init.abs().max(-1, keepdim=True)[0])
-            .view(self.num_heads, 1, 1, 2)
-            .repeat(1, self.num_levels, self.num_points, 1)
-        )
+        grid_init = ((grid_init /
+                      grid_init.abs().max(-1, keepdim=True)[0]).view(
+                          self.num_heads, 1, 1,
+                          2).repeat(1, self.num_levels, self.num_points, 1))
         for i in range(self.num_points):
             grid_init[:, :, i, :] *= i + 1
         self.sampling_offsets.bias.data = grid_init.view(-1)
@@ -155,30 +149,23 @@ class PartAttention(BaseModule):
 
         value = self.value_proj(value).view(bs, num_value, self.num_heads, -1)
         sampling_offsets = self.sampling_offsets(query).view(
-            bs, num_query, self.num_heads, self.num_levels, self.num_points, 2
-        )
+            bs, num_query, self.num_heads, self.num_levels, self.num_points, 2)
 
         if reference_points.shape[-1] == 2:
             offset_normalizer = torch.stack(
-                [spatial_shapes[..., 1], spatial_shapes[..., 0]], -1
-            )
+                [spatial_shapes[..., 1], spatial_shapes[..., 0]], -1)
             sampling_locations = (
-                reference_points[:, :, None, :, None, :]
-                + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
-            )
+                reference_points[:, :, None, :, None, :] + sampling_offsets /
+                offset_normalizer[None, None, None, :, None, :])
         elif reference_points.shape[-1] == 4:
             sampling_locations = (
-                reference_points[:, :, None, :, None, :2]
-                + sampling_offsets
-                / self.num_points
-                * reference_points[:, :, None, :, None, 2:]
-                * 0.5
-            )
+                reference_points[:, :, None, :, None, :2] +
+                sampling_offsets / self.num_points *
+                reference_points[:, :, None, :, None, 2:] * 0.5)
         else:
             raise ValueError(
                 f"Last dim of reference_points must be"
-                f" 2 or 4, but get {reference_points.shape[-1]} instead."
-            )
+                f" 2 or 4, but get {reference_points.shape[-1]} instead.")
 
         bs, _, num_heads, embed_dims = value.shape
         _, num_queries, num_heads, _, _, _ = sampling_locations.shape
@@ -192,17 +179,13 @@ class PartAttention(BaseModule):
             # bs, num_heads*embed_dims, H_*W_ ->
             # bs*num_heads, embed_dims, H_, W_
             value_l_ = (
-                value_list[level]
-                .flatten(2)
-                .transpose(1, 2)
-                .reshape(bs * num_heads, embed_dims, H_, W_)
-            )
+                value_list[level].flatten(2).transpose(1, 2).reshape(
+                    bs * num_heads, embed_dims, H_, W_))
             # bs, num_queries, num_heads, num_points, 2 ->
             # bs, num_heads, num_queries, num_points, 2 ->
             # bs*num_heads, num_queries, num_points, 2
             sampling_grid_l_ = (
-                sampling_grids[:, :, :, level].transpose(1, 2).flatten(0, 1)
-            )
+                sampling_grids[:, :, :, level].transpose(1, 2).flatten(0, 1))
             # bs*num_heads, embed_dims, num_queries, num_points
             sampling_value_l_ = F.grid_sample(
                 value_l_,
@@ -251,9 +234,8 @@ class PartAttention(BaseModule):
         Returns:
              Tensor: forwarded results with shape [num_query, bs, embed_dims].
         """
-        assert self.batch_first, (
-            "Deformable DETR forces batch first," "so same for part attention"
-        )
+        assert self.batch_first, ("Deformable DETR forces batch first,"
+                                  "so same for part attention")
 
         num_queries, num_heads, output = self._pre_attention_forward(
             query,
@@ -267,18 +249,16 @@ class PartAttention(BaseModule):
         assert self.embed_dims % num_heads == 0
         head_embed_dims = self.embed_dims // num_heads
 
-        weights = torch.einsum(
-            "bqnc,bqcl->bqnl", output * self.normalize_fact, output.transpose(2, 3)
-        )
+        weights = torch.einsum("bqnc,bqcl->bqnl", output * self.normalize_fact,
+                               output.transpose(2, 3))
         weights = F.softmax(weights, dim=-1)
 
         output1 = torch.einsum("bqnl,bqlc->bqnc", weights, output)
         output1 = output1[:, :, 0, :]
 
         # Concat header features
-        output1 = output1.contiguous().view(
-            batch_size, num_queries, num_heads * head_embed_dims
-        )
+        output1 = output1.contiguous().view(batch_size, num_queries,
+                                            num_heads * head_embed_dims)
 
         return output1
 
@@ -379,9 +359,10 @@ class PartAttentionDecoder(BaseModule):
             the initialization. Defaults to None.
     """
 
-    def __init__(
-        self, num_layers: int, part_attn_cfg: ConfigType, init_cfg: OptConfigType = None
-    ) -> None:
+    def __init__(self,
+                 num_layers: int,
+                 part_attn_cfg: ConfigType,
+                 init_cfg: OptConfigType = None) -> None:
         super().__init__(init_cfg=init_cfg)
         self.part_attn_cfg = part_attn_cfg
         self.num_layers = num_layers
@@ -389,12 +370,10 @@ class PartAttentionDecoder(BaseModule):
 
     def _init_layers(self) -> None:
         """Initialize decoder layers."""
-        self.layers = ModuleList(
-            [
-                PartAttentionDecoderLayer(self.part_attn_cfg)
-                for _ in range(self.num_layers)
-            ]
-        )
+        self.layers = ModuleList([
+            PartAttentionDecoderLayer(self.part_attn_cfg)
+            for _ in range(self.num_layers)
+        ])
         self.embed_dims = self.layers[0].embed_dims
 
     def forward(
@@ -436,14 +415,12 @@ class PartAttentionDecoder(BaseModule):
             # Adjust reference points with valid ratios
             if reference_points.shape[-1] == 4:
                 reference_points_input = (
-                    reference_points[:, :, None]
-                    * torch.cat([valid_ratios, valid_ratios], -1)[:, None]
-                )
+                    reference_points[:, :, None] *
+                    torch.cat([valid_ratios, valid_ratios], -1)[:, None])
             else:
                 assert reference_points.shape[-1] == 2
                 reference_points_input = (
-                    reference_points[:, :, None] * valid_ratios[:, None]
-                )
+                    reference_points[:, :, None] * valid_ratios[:, None])
 
             query = layer(
                 query,
