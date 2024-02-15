@@ -469,7 +469,7 @@ class LoadReIDDetAnnotations(LoadAnnotations):
 
     def __init__(
         self,
-        is_eval: bool = True,
+        is_eval: bool = False,
         with_mask: bool = True,
         poly2mask: bool = False,
         box_type: str = "hbox",
