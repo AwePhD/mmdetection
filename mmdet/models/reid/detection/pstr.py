@@ -32,6 +32,10 @@ class PSTR(BaseReIDDetection):
     ):
         super().__init__(**kwargs)
         self.detector: DeformableDETR
+        # data_preprocessor is not supposed to be called from detector.
+        # We make sure that this function is never called.
+        self.detector.data_preprocessor = None
+
         self.reid: PSTRHeadReID
 
     def forward_detector_no_head(
