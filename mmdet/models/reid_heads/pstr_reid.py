@@ -38,7 +38,11 @@ class PSTRHeadReID(BaseModule):
                  decoder: ConfigType,
                  num_person: int,
                  flag_tri: bool = True,
-                 queue_size: int = 5000):
+                 queue_size: int = 5000,
+                 unlabeled_weight: int = 10,
+                 temperature: int = 15,
+                 oim_weight: float = 0.5,
+                 triplet_weight: float = 0.5):
         super().__init__()
 
         self.decoder = PartAttentionDecoder(**decoder)
@@ -47,14 +51,15 @@ class PSTRHeadReID(BaseModule):
         self.queue_size = queue_size
         self.flag_tri = flag_tri
 
+        self.unlabeled_weight = unlabeled_weight
+        self.temperature = temperature
+        self.oim_weight = oim_weight
+        self.triplet_weight = triplet_weight
+
         self._init_layers()
 
     def _init_layers(self):
-        self.unlabeled_weight = 10
-        self.temperature = 15
         self.reid_features_dimension = 256
-        self.oim_weight_single_scale_layer = .5
-        self.triplet_weight_single_scale_layer = .5
 
         num_reid_decoder = 3
 
@@ -290,7 +295,7 @@ class PSTRHeadReID(BaseModule):
         probabilities = F.softmax(matching_scores, dim=1)
         focal_probabilities = ((1 - probabilities + 1e-12)**2 *
                                (probabilities + 1e-12).log())
-        loss_oim = self.oim_weight_single_scale_layer * F.nll_loss(
+        loss_oim = self.oim_weight * F.nll_loss(
             focal_probabilities,
             only_assigned_person_ids,
             reduction="sum",
@@ -304,7 +309,7 @@ class PSTRHeadReID(BaseModule):
         positive_person_ids = torch.cat(
             (only_assigned_person_ids, labeled_person_ids))
         loss_triplet = (
-            self.triplet_weight_single_scale_layer *
+            self.triplet_weight *
             self.triplet_loss(positive_reid_features, positive_person_ids))
 
         return {oim_loss_key: loss_oim, triplet_loss_key: loss_triplet}
