@@ -323,7 +323,7 @@ class PSTRHeadReID(BaseModule):
         i_scale: int,
     ) -> dict[str, Tensor]:
         """
-        Compute the ReID losses (OIM and Triplet, the former if set).
+        Compute the ReID losses (OIM and Triplet, if the former if set).
         For a single decoder layer and a single scale.
 
         Args:
