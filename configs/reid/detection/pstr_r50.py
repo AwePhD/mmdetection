@@ -103,12 +103,16 @@ reid = dict(  # PSTRHeadReID
         ),
     ),
     num_person=7792,
-    flag_tri=True,
     queue_size=5000,
     temperature=15,
     unlabeled_weight=10,
     oim_weight=0.5,
-    triplet_weight=0.5)
+    triplet_loss=dict(
+        type="TripletLoss",
+        margin=.3,  # Default
+        loss_weight=.5,
+        hard_mining=True,  # Default
+    ))
 
 model = dict(
     type="PSTR", detector=detector, reid=reid, test_cfg=_base_.test_cfg)

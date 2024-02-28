@@ -7,11 +7,9 @@ from torch.nn import functional as F
 from mmdet.models.dense_heads import (LabeledMatchingLayerQ,
                                       UnlabeledMatchingLayer)
 from mmdet.models.layers.transformer import PartAttentionDecoder
-from mmdet.models.losses import TripletLoss
 from mmdet.registry import MODELS
-from mmdet.structures.reid_det_data_sample import (ReIDDetDataSample,
-                                                   ReIDDetSampleList)
-from mmdet.utils import ConfigType
+from mmdet.structures.reid_det_data_sample import ReIDDetSampleList
+from mmdet.utils import ConfigType, OptConfigType
 
 N_PSTR_DECODER_LAYERS = 3
 LOSS_DICT_KEY_TEMPLATE_OIM = "d{}.loss_oim_s{}"
@@ -24,58 +22,67 @@ class PSTRHeadReID(BaseModule):
     PSTR Head ReID, computes the ReID features from PSTR detections output
     and frame's features maps.
 
+    NOTE: default value are the same as original PSTR.
+
     Args:
-        decoder (:obj:`ConfigDict` or dict): Config dict for ReID decoder.
+        decoder (:obj:`ConfigType`): Config dict for ReID decoder.
         num_person (int): Number of person IDs in the dataset.
-        flag_tri (bool): Compute triplet loss if True, else do not. This is the
-            size of the lookup table for loss computation. Default to True.
         queue_size (int): Size of unlabeled queue for loss computation.
             Default to False.
-
+        temperature (int): Temperature of labeled detection
+            Default to 15.
+        unlabeled_weight (int): Temperature of unlabeled detection
+            Default to 10.
+        oim_weight (float): Weight for OIM loss. Default to 0.5
+        triplet_loss (:obj:`ConfigType`): Config dict for a triplet loss.
+            Defaults to `TripletLoss`.
     """
 
-    def __init__(self,
-                 decoder: ConfigType,
-                 num_person: int,
-                 flag_tri: bool = True,
-                 queue_size: int = 5000,
-                 unlabeled_weight: int = 10,
-                 temperature: int = 15,
-                 oim_weight: float = 0.5,
-                 triplet_weight: float = 0.5):
+    def __init__(
+        self,
+        decoder: ConfigType,
+        num_person: int,
+        queue_size: int = 5000,
+        unlabeled_weight: int = 10,
+        temperature: int = 15,
+        oim_weight: float = 0.5,
+        triplet_loss: OptConfigType = dict(
+            type="TripletLoss",
+            margin=.3,  # Default
+            loss_weight=0.5,
+            hard_mining=True  # Default
+        )  # TripletLoss
+    ):
         super().__init__()
 
         self.decoder = PartAttentionDecoder(**decoder)
 
         self.num_person = num_person
         self.queue_size = queue_size
-        self.flag_tri = flag_tri
 
         self.unlabeled_weight = unlabeled_weight
         self.temperature = temperature
         self.oim_weight = oim_weight
-        self.triplet_weight = triplet_weight
+
+        self.triplet_loss = MODELS.build(
+            triplet_loss) if triplet_loss else None
 
         self._init_layers()
 
     def _init_layers(self):
-        self.reid_features_dimension = 256
+        self.n_dim_reid = 256
 
         num_reid_decoder = 3
 
         self.labeled_matching_layers = nn.ModuleList([
-            LabeledMatchingLayerQ(self.num_person,
-                                  self.reid_features_dimension)
+            LabeledMatchingLayerQ(self.num_person, self.n_dim_reid)
             for _ in range(num_reid_decoder)
         ])
 
         self.unlabeled_matching_layers = nn.ModuleList([
-            UnlabeledMatchingLayer(self.num_person,
-                                   self.reid_features_dimension)
+            UnlabeledMatchingLayer(self.queue_size, self.n_dim_reid)
             for _ in range(num_reid_decoder)
         ])
-
-        self.triplet_loss = TripletLoss() if self.flag_tri else None
 
     def _forward_decoder(
         self,
@@ -230,90 +237,6 @@ class PSTRHeadReID(BaseModule):
 
         return reid_outputs
 
-    def loss_single_layer_scale_sample(
-        self,
-        reid_features: Tensor,
-        assigned_person_ids: Tensor,
-        data_sample: ReIDDetDataSample,
-        triplet_loss_key: str,
-        oim_loss_key: str,
-        i_layer: int,
-    ) -> dict[str, Tensor]:
-        """
-        Compute the ReID losses (OIM and Triplet, the former if set).
-        For a single decoder layer and a single scale and a single sample.
-
-        Args:
-            reid_features (Tensor): ReID features by and sample.
-                (n_queries, n_dim_reid)
-            assigned_person_ids (Tensor): Result of the
-                the matching from assigner, 0 is not assigned and other value
-                the person ID assigned to it (-1 is for detection kept but
-                no ReID annotations) (n_queries)
-            data_sample (ReIDDetDataSample): Annotation of one frame.
-            triplet_loss_key (str): key for triplet loss in loss dict. It
-                contains information of the layer and the scale which is
-                applied.
-            oim_loss_key (str): key for oim loss in loss dict. It contains
-                information of the layer and the scale which is applied.
-            i_layer (int): index of decoder layer.
-
-        Returns:
-            dict[str, Tensor]: The keys are the loss based on the input
-            (scales) and value is the loss value.
-        """
-        # No annotations for this frame
-        if data_sample.ignored_instances:
-            loss_value_zero = reid_features.sum() * 0
-            loss_reid = {oim_loss_key: loss_value_zero}
-            if self.flag_tri:
-                loss_reid[triplet_loss_key] = loss_value_zero
-            return loss_reid
-
-        detection_is_assigned = assigned_person_ids != 0
-        assigned_reid_features = F.normalize(
-            reid_features[detection_is_assigned])
-        only_assigned_person_ids = assigned_person_ids[detection_is_assigned]
-
-        labeled_outputs = self.labeled_matching_layers[i_layer](
-            assigned_reid_features,
-            only_assigned_person_ids,
-        )
-        (
-            labeled_logits,
-            labeled_reid_features,
-            labeled_person_ids,
-        ) = labeled_outputs
-        labeled_logits *= self.temperature
-
-        unlabeled_logits = self.unlabeled_matching_layers[i_layer](
-            assigned_reid_features, only_assigned_person_ids)
-        unlabeled_logits *= self.unlabeled_weight
-
-        matching_scores = torch.cat((labeled_logits, unlabeled_logits), dim=1)
-
-        probabilities = F.softmax(matching_scores, dim=1)
-        focal_probabilities = ((1 - probabilities + 1e-12)**2 *
-                               (probabilities + 1e-12).log())
-        loss_oim = self.oim_weight * F.nll_loss(
-            focal_probabilities,
-            only_assigned_person_ids,
-            reduction="sum",
-            ignore_index=-1)
-
-        if not self.flag_tri:
-            return {oim_loss_key: loss_oim}
-
-        positive_reid_features = torch.cat(
-            (assigned_reid_features, labeled_reid_features))
-        positive_person_ids = torch.cat(
-            (only_assigned_person_ids, labeled_person_ids))
-        loss_triplet = (
-            self.triplet_weight *
-            self.triplet_loss(positive_reid_features, positive_person_ids))
-
-        return {oim_loss_key: loss_oim, triplet_loss_key: loss_triplet}
-
     def loss_single_layer_scale(
         self,
         batch_reid_features: Tensor,
@@ -346,36 +269,96 @@ class PSTRHeadReID(BaseModule):
         assert batch_size == batch_reid_features.shape[
             0] == batch_assigned_person_ids.shape[0]
 
+        assert batch_reid_features.shape[-1] == self.n_dim_reid
+
         triplet_loss_key = LOSS_DICT_KEY_TEMPLATE_TRIPLET.format(
             i_layer, i_scale)
         oim_loss_key = LOSS_DICT_KEY_TEMPLATE_OIM.format(i_layer, i_scale)
+        losses = {}
 
-        batch_reid_loss: dict[str, Tensor] = {}
-        for i_sample in range(batch_size):
-            sample_reid_loss = self.loss_single_layer_scale_sample(
-                batch_reid_features[i_sample],
-                batch_assigned_person_ids[i_sample],
-                data_samples[i_sample],
-                triplet_loss_key,
-                oim_loss_key,
-                i_layer,
-            )
+        # Flatten inputs. We can compute the loss on the batch directly
+        # (bs, num_queries, n_dim_reid) -> (bs * num_queries, n_dim_reid)
+        batch_reid_features_flatten = batch_reid_features.reshape(
+            -1, self.n_dim_reid)
+        # (bs, num_queries) -> (bs * num_queries)
+        batch_assigned_person_ids_flatten = batch_assigned_person_ids.flatten()
+        detection_is_assigned = batch_assigned_person_ids_flatten != 0
+        # (n_keep, n_dim_reid)
+        assigned_reid_features = F.normalize(
+            batch_reid_features_flatten[detection_is_assigned])
+        # (n_keep)
+        only_assigned_person_ids = batch_assigned_person_ids_flatten[
+            detection_is_assigned]
 
-            # Init batch_reid_loss
-            if not batch_reid_loss:
-                for sample_loss_key, sample_loss in sample_reid_loss.items():
-                    batch_reid_loss[sample_loss_key] = sample_loss
-            else:
-                for sample_loss_key, sample_loss in sample_reid_loss.items():
-                    batch_reid_loss[sample_loss_key] += sample_loss
+        # Perform cosine similarity with the labeled memory
+        labeled_outputs = self.labeled_matching_layers[i_layer](
+            assigned_reid_features,
+            only_assigned_person_ids,
+        )
 
-        # Average of losses
-        # NOTE: I am not sure that the matching layers losses support reduce
-        # method. So this is performed manually
-        for loss_key in batch_reid_loss:
-            batch_reid_loss[loss_key] /= batch_size
+        (
+            labeled_logits,  # (n_assigned, self.num_person)
+            labeled_reid_features,  # (n_positive, n_dim_reid)
+            labeled_person_ids,  # (n_positive)
+        ) = labeled_outputs
+        labeled_logits *= self.temperature
 
-        return batch_reid_loss
+        # (n_assigned, self.queue_size)
+        unlabeled_logits = self.unlabeled_matching_layers[i_layer](
+            assigned_reid_features, only_assigned_person_ids)
+        unlabeled_logits *= self.unlabeled_weight
+
+        # (n_keep, self.num_person + self.queue_size)
+        matching_scores = torch.cat((labeled_logits, unlabeled_logits), dim=1)
+
+        # (n_keep, self.num_person + self.queue_size)
+        probabilities = F.softmax(matching_scores, dim=1)
+        # (n_keep, self.num_person + self.queue_size)
+        focal_probabilities = ((1 - probabilities + 1e-12)**2 *
+                               (probabilities + 1e-12).log())
+
+        # NOTE: original PSTR average counting ignore_index value
+        # while reduction does not take them into account.
+        loss_oim = F.nll_loss(
+            focal_probabilities,
+            only_assigned_person_ids,
+            reduction="none",
+            ignore_index=-1).mean()
+        loss_oim *= self.oim_weight
+        losses[oim_loss_key] = loss_oim
+
+        if not self.triplet_loss:
+            return {oim_loss_key: loss_oim}
+
+        # In PSTR version, the triplet loss module is designed to remove
+        # unlabeled detection. In the current, it's not designed for this.
+        # So we manage here:
+        # (1) we need more 2 different reid_labels, else equals 0
+        # (2) we need input positive example only.
+        num_positives = len(
+            set(person_id
+                for person_id in only_assigned_person_ids.cpu().tolist()
+                if person_id != -1))
+        if num_positives < 2:
+            losses[triplet_loss_key] = assigned_reid_features.new_zeros(1)[0]
+            return losses
+
+        is_labeled = only_assigned_person_ids > 0
+
+        # (2 * n_positive, n_dim_reid)
+        # We use the current batch features and the ones in the matching
+        # layer's lookup table.
+        positive_reid_features = torch.cat(
+            (assigned_reid_features[is_labeled], labeled_reid_features))
+        # (2 * n_positive)
+        positive_person_ids = torch.cat(
+            (only_assigned_person_ids[is_labeled], labeled_person_ids))
+
+        loss_triplet = self.triplet_loss(positive_reid_features,
+                                         positive_person_ids)
+
+        losses[triplet_loss_key] = loss_triplet
+        return losses
 
     def loss_single_layer(
         self,
