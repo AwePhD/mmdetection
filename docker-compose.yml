@@ -17,8 +17,8 @@ services:
       python tools/train.py 
       configs/reid/detection/pstr_r50.py
       --cfg-options
-      train_dataloader.dataset.data_root=/dataset
-      train_dataloader.dataset.ann_file=annotations/annotations_train.json
+      train_dataloader.batch_size=2
+      model.detector.encoder.num_layers=1
     environment:
         TERM: 'screen-256color'
 
