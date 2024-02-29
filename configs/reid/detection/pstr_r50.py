@@ -102,7 +102,7 @@ reid = dict(  # PSTRHeadReID
             batch_first=True,
         ),
     ),
-    num_person=7792,
+    num_person=5533,
     queue_size=5000,
     temperature=15,
     unlabeled_weight=10,

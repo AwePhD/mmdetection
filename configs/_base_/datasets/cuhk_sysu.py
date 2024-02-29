@@ -61,7 +61,7 @@ train_dataloader = dict(
     dataset=dict(
         type=dataset_type,
         filter_cfg=dict(filter_empty_gt=False),
-        ann_file="annotations/train.json",
+        ann_file="annotations/train_sysu.json",
         data_root=data_root,
         pipeline=train_pipeline,
     ),
@@ -74,7 +74,7 @@ test_dataloader = dict(
     dataset=dict(
         type=dataset_type,
         filter_cfg=dict(filter_empty_gt=False),
-        ann_file="annotations/test.json",
+        ann_file="annotations/test_sysu.json",
         data_root=data_root,
         pipeline=test_pipeline,
     ),
