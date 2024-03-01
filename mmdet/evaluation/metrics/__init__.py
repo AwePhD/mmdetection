@@ -13,6 +13,7 @@ from .dump_odvg_results import DumpODVGResults
 from .dump_proposals_metric import DumpProposals
 from .flickr30k_metric import Flickr30kMetric
 from .grefcoco_metric import gRefCOCOMetric
+from .dump_reid_det_results import DumpReIDDetResults
 from .lvis_metric import LVISMetric
 from .mot_challenge_metric import MOTChallengeMetric
 from .openimages_metric import OpenImagesMetric
@@ -32,5 +33,5 @@ __all__ = [
     'MOTChallengeMetric', 'CocoVideoMetric', 'ReIDMetrics', 'YouTubeVISMetric',
     'COCOCaptionMetric', 'SemSegMetric', 'RefSegMetric', 'RefExpMetric',
     'gRefCOCOMetric', 'DODCocoMetric', 'DumpODVGResults', 'Flickr30kMetric',
-    'OVCocoMetric', 'ReIDDetMetric',
+    'OVCocoMetric', 'ReIDDetMetric', 'ReIDDetMetric', 'DumpReIDDetResults'
 ]

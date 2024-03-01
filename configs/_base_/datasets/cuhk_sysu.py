@@ -1,4 +1,19 @@
 # ---------------------------------------------
+# ----------------- EVALUATION ----------------
+# ---------------------------------------------
+metric_evaluator = dict(
+    type='ReIDDetMetric',
+    metric='mAP',
+    metric_options=dict(
+        n_samples=2900, gallery_threshold=.30, gallery_size=100))
+metric_dump = dict(type="DumpReIDDetResults", )
+
+# First dump the results in metric_dump
+# Second use offline evaluation with metric_evaluator
+test_evaluator = metric_dump
+test_cfg = dict(type='TestLoop')
+
+# ---------------------------------------------
 # --------------- TRANSFORMS ------------------
 # ---------------------------------------------
 
@@ -66,9 +81,18 @@ train_dataloader = dict(
         pipeline=train_pipeline,
     ),
 )
+
+# See evalutation section
+evaluate_batch_size = 1
+dump_batch_size = 1
+test_batch_size = (
+    evaluate_batch_size
+    if test_evaluator["type"] == 'ReIDDetMetric'  # according to eval or dumb
+    else dump_batch_size
+)
 test_dataloader = dict(
     shuffle=False,
-    batch_size=1,
+    batch_size=test_batch_size,
     num_workers=num_workers,
     pin_memory=True,
     dataset=dict(
@@ -79,14 +103,3 @@ test_dataloader = dict(
         pipeline=test_pipeline,
     ),
 )
-
-# ---------------------------------------------
-# ----------------- EVALUATION ----------------
-# ---------------------------------------------
-_evaluator = dict(
-    type='ReIDDetMetric',
-    metric='mAP',
-    metric_options=dict(
-        n_samples=641, gallery_threshold=.15, gallery_size=100))
-test_evaluator = _evaluator
-test_cfg = dict(type='TestLoop')
