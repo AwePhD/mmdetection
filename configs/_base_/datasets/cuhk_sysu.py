@@ -84,7 +84,7 @@ train_dataloader = dict(
 
 # See evalutation section
 evaluate_batch_size = 1
-dump_batch_size = 1
+dump_batch_size = 8  # Needs ~ 7GB of VRAM
 test_batch_size = (
     evaluate_batch_size
     if test_evaluator["type"] == 'ReIDDetMetric'  # according to eval or dumb
