@@ -56,9 +56,10 @@ test_pipeline = [
     dict(type="LoadImageFromFile"),
     dict(type="LoadReIDDetAnnotations", is_eval=True),
     # flip and flip_direction are in the default meta_keys of PackReIDDetInputs
-    dict(type="RandomFlip", prob=0.0),
     dict(type="Resize", scale=(1500, 900), keep_ratio=True),
-    dict(type="PackReIDDetInputs"),
+    dict(
+        type="PackReIDDetInputs",
+        meta_keys=('img_path', 'ori_shape', 'img_shape', 'scale_factor')),
 ]
 
 # ---------------------------------------------
