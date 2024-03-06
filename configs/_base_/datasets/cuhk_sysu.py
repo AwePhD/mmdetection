@@ -1,30 +1,23 @@
 # ---------------------------------------------
 # ----------------- EVALUATION ----------------
 # ---------------------------------------------
-metric_evaluator = dict(
+# IMPORTANT:
+# - test_evaluator is used to output pickles
+# - val_evaluator is used to evaluate the pickles (not used during training)
+data_root = "/dataset"
+test_cfg = dict(type='TestLoop')
+
+test_evaluator = dict(
     type='ReIDDetMetric',
+    ann_file=data_root + "/annotations/test_sysu.csv",
+    split_column="split_sysu",
     metric='mAP',
     metric_options=dict(
         n_samples=2900, gallery_threshold=.30, gallery_size=100))
-metric_dump = dict(type="DumpReIDDetResults", )
-
-# First dump the results in metric_dump
-# Second use offline evaluation with metric_evaluator
-test_evaluator = metric_dump
-test_cfg = dict(type='TestLoop')
 
 # ---------------------------------------------
 # --------------- TRANSFORMS ------------------
 # ---------------------------------------------
-
-transfrom_normalize = dict(
-    type="Normalize",
-    mean=[123.675, 116.28, 103.53],
-    std=[58.395, 57.12, 57.375],
-    to_rgb=True,
-)
-transform_pad = dict(type="Pad", size_divisor=1)
-
 train_pipeline = [
     dict(type="LoadImageFromFile"),
     dict(type="LoadReIDDetAnnotations"),
@@ -66,7 +59,6 @@ test_pipeline = [
 # --------------- DATALOADERS -----------------
 # ---------------------------------------------
 
-data_root = "/dataset"
 dataset_type = "CUHK_SYSU"
 num_workers = 2
 train_dataloader = dict(
@@ -82,18 +74,9 @@ train_dataloader = dict(
         pipeline=train_pipeline,
     ),
 )
-
-# See evalutation section
-evaluate_batch_size = 1
-dump_batch_size = 8  # Needs ~ 7GB of VRAM
-test_batch_size = (
-    evaluate_batch_size
-    if test_evaluator["type"] == 'ReIDDetMetric'  # according to eval or dumb
-    else dump_batch_size
-)
 test_dataloader = dict(
     shuffle=False,
-    batch_size=test_batch_size,
+    batch_size=8,  # Used only to generate pickle results.
     num_workers=num_workers,
     pin_memory=True,
     dataset=dict(
