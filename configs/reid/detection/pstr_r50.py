@@ -115,23 +115,25 @@ reid = dict(  # PSTRHeadReID
     ))
 
 model = dict(
-    type="PSTR", detector=detector, reid=reid, test_cfg=_base_.test_cfg)
-
-model["train_cfg"] = dict(
-    assigner=dict(
-        type="HungarianAssigner",
-        match_costs=[
-            dict(type="FocalLossCost", weight=2.0),
-            dict(type="BBoxL1Cost", weight=5.0, box_format="xywh"),
-            dict(type="IoUCost", iou_mode="giou", weight=2.0),
-        ]))
-
-model["data_preprocessor"] = dict(
-    type="DetDataPreprocessor",
-    mean=[123.675, 116.28, 103.53],
-    std=[58.395, 57.12, 57.375],
-    bgr_to_rgb=True,
-    pad_size_divisor=1)
+    type="PSTR",
+    detector=detector,
+    reid=reid,
+    test_cfg=_base_.test_cfg,
+    train_cfg=dict(
+        assigner=dict(
+            type="HungarianAssigner",
+            match_costs=[
+                dict(type="FocalLossCost", weight=2.0),
+                dict(type="BBoxL1Cost", weight=5.0, box_format="xywh"),
+                dict(type="IoUCost", iou_mode="giou", weight=2.0),
+            ])),
+    data_preprocessor=dict(
+        type="DetDataPreprocessor",
+        mean=[123.675, 116.28, 103.53],
+        std=[58.395, 57.12, 57.375],
+        bgr_to_rgb=True,
+        pad_size_divisor=1)
+    )
 
 optim_wrapper = dict(
     type="OptimWrapper",
