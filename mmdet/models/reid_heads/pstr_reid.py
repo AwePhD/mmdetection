@@ -94,25 +94,25 @@ class PSTRHeadReID(BaseModule):
     ) -> Tensor:
         """
         Compute raw ReID features from detector and features maps.
-        n_decoder_layers=1 in inference and n_decoder_layers=3 in training.
+        n_layers=1 in inference and n_layers=3 in training.
 
         Args:
             detection_decoder_states (Tensor): The outputs of detector which
                 have one in inference and 3 (number of decoder layers) in
-                training. (n_decoder_layers, bs, n_queries, n_dim_det)
+                training. (n_layers, bs, n_queries, n_dim_det)
             references (Tensor): References point from deformable attention.
-                (n_decoder_layers, bs, n_queries, 4)
+                (n_layers, bs, n_queries, 4)
             spatial_shapes (Tensor): The dimension of features maps used in
                 detection, before flattening. (n_used_detection, 2)
             valid_ratios (Tensor): Valid ratios of detections, in case some are
                 annotatated to be ignored. (bs, ratio_dim, 2).
-            multi_scale_features_maps (list[Tensor]): The features maps
-                from the backbone/neck. A list of n_scales, each element
+            multi_scale_features_maps_flattend (list[Tensor]): The features
+                maps from the backbone/neck. A list of n_scales, each element
                 is (bs, , x_dim*y_dim, n_dim_neck).
 
         Returns:
-            Tensor: Result of the raw ReID features
-            (n_scales, n_decoder_layers, bs, n_queries, n_dim_reid)
+            Tensor: Raw ReID features, for every scales and decoder layers.
+                (n_scales, n_layers, bs, n_queries, n_features)
         """
         n_scales = len(multi_scale_features_maps_flattened)
 
@@ -124,7 +124,7 @@ class PSTRHeadReID(BaseModule):
             assert references.shape[0] == 1
             reference = references.squeeze(0)
 
-            # (n_scales) [(bs, num_queries, n_dim_reid)]
+            # (n_scales) [(bs, n_queries, n_dim_reid)]
             inter_reid_states = [
                 self.decoder(
                     query=last_state,
@@ -136,7 +136,8 @@ class PSTRHeadReID(BaseModule):
                 multi_scale_features_maps_flattened
             ]
 
-            # (n_scales, n_decoder_layers=1, bs, num_queries, n_dim_reid)
+            # (n_scales, n_layers=1, bs, n_queries, n_dim_reid)
+            # TODO unsqueeze is an undesired left over? Assert with eval
             inter_reid_states = torch.stack(inter_reid_states).unsqueeze(1)
             return inter_reid_states
 
@@ -144,29 +145,24 @@ class PSTRHeadReID(BaseModule):
         assert number_decoder_layers == N_PSTR_DECODER_LAYERS, \
             f"PSTR needs exactly {N_PSTR_DECODER_LAYERS} layers from decoder"
 
-        inter_reid_states = [
-            self.decoder(
-                query=detection_decoder_states[i_layer],
-                value=multi_scale_features_maps_flattened[i_scale],
-                reference_points=references[i_layer],
-                spatial_shapes=spatial_shapes,
-                valid_ratios=valid_ratios,
-            )
-            # Per layer of decoder in detector
-            for i_layer in range(number_decoder_layers)
+        # (n_scales, n_layers, bs, n_queries, n_dim_reid)
+        inter_reid_states = torch.stack([
+            torch.stack([
+                self.decoder(
+                    query=detection_decoder_states[i_layer],
+                    value=multi_scale_features_maps_flattened[i_scale],
+                    reference_points=references[i_layer],
+                    spatial_shapes=spatial_shapes,
+                    valid_ratios=valid_ratios,
+                )
+                # Per layer of decoder in detector
+                for i_layer in range(number_decoder_layers)
+            ])
             # Per level of scale in backbone/neck
             for i_scale in range(n_scales)
-        ]
+        ])
 
-        inter_reid_states_stacked = torch.stack(inter_reid_states)
-        inter_reid_states_reshaped = inter_reid_states_stacked.view(
-            n_scales, number_decoder_layers,
-            *inter_reid_states_stacked.shape[1:]
-            # Delete deformable detr dimension, only use one in Deformable
-            # DETR in PSTR.
-        )
-
-        return inter_reid_states_reshaped
+        return inter_reid_states
 
     def forward(
         self,
@@ -175,15 +171,15 @@ class PSTRHeadReID(BaseModule):
         spatial_shapes: Tensor,
         valid_ratios: Tensor,
         multi_scale_features_maps: tuple[Tensor],
-    ) -> list[Tensor]:
+    ) -> Tensor:
         """
         Compute ReID features from detector and features maps.
 
         Args:
             detection_decoder_states (Tensor): The outputs of detector
-                (n_decoder_layers, bs, n_queries, n_dim_det).
+                (n_layers, bs, n_queries, n_dim_det).
             references (Tensor): References point from deformable attention.
-                (n_decoder_layers, bs, n_queries, 4)
+                (n_layers, bs, n_queries, 4)
             spatial_shapes (Tensor): The dimension of features maps used in
                 detection, before flattening. (n_used_detection, 2)
             valid_ratios (Tensor): Valid ratios of detections, in case some are
@@ -193,10 +189,9 @@ class PSTRHeadReID(BaseModule):
                 is (bs, n_dim_neck, x_dim, y_dim).
 
         Returns:
-            list[Tensor]: The list of ReID features by scale, n_scale = 3.
-                Each scale is (n_decoder_layers, bs, n_queries, n_dim_reid).
-                n_decoder_layers (in the return) depends if the model perform
-                inference or loss computation, see _forward_decoder.
+            Tensor: ReID features, for every scales and decoder layers centered
+                over their n_queries dimension.
+                (n_scales, n_layers, bs, n_queries, n_features)
         """
         assert detection_decoder_states.shape[0] == references.shape[0]
         assert len(multi_scale_features_maps) == 3
@@ -217,8 +212,8 @@ class PSTRHeadReID(BaseModule):
             detection_decoder_states = detection_decoder_states[-1:]
             references = references[-1:]  # (1, bs, n_queries, 4)
 
-        # NOTE: n_decoder_layers=3 if self.training else n_decoder_layers=1
-        # (scales, n_decoder_layers, batch_size, num_queries, n_features)
+        # NOTE: n_layers=3 if self.training else n_layers=1
+        # (scales, n_layers, batch_size, n_queries, n_features)
         inter_reid_states = self._forward_decoder(
             detection_decoder_states,
             references,
@@ -227,15 +222,12 @@ class PSTRHeadReID(BaseModule):
             multi_scale_features_maps_flattened,
         )
 
-        # Center the reid features, average over the num_queries.
-        # (n_scales) [n_decoder_layers, bs, num_queries, n_features]
-        reid_outputs: list[Tensor] = [
-            inter_reid_state -
-            torch.mean(inter_reid_state, dim=2, keepdim=True)
-            for inter_reid_state in inter_reid_states
-        ]
+        # Center the reid features, average over the n_queries.
+        # (n_scales, n_layers, bs, n_queries, n_features)
+        all_scales_layers_batch_reid_features = (
+            inter_reid_states - inter_reid_states.mean(dim=3, keepdim=True))
 
-        return reid_outputs
+        return all_scales_layers_batch_reid_features
 
     def loss_single_layer_scale(
         self,
@@ -277,10 +269,10 @@ class PSTRHeadReID(BaseModule):
         losses = {}
 
         # Flatten inputs. We can compute the loss on the batch directly
-        # (bs, num_queries, n_dim_reid) -> (bs * num_queries, n_dim_reid)
+        # (bs, n_queries, n_dim_reid) -> (bs * n_queries, n_dim_reid)
         batch_reid_features_flatten = batch_reid_features.reshape(
             -1, self.n_dim_reid)
-        # (bs, num_queries) -> (bs * num_queries)
+        # (bs, n_queries) -> (bs * n_queries)
         batch_assigned_person_ids_flatten = batch_assigned_person_ids.flatten()
         detection_is_assigned = batch_assigned_person_ids_flatten != 0
         # (n_keep, n_dim_reid)
@@ -402,11 +394,7 @@ class PSTRHeadReID(BaseModule):
 
     def loss(
         self,
-        detection_decoder_states: Tensor,
-        references: Tensor,
-        spatial_shapes: Tensor,
-        valid_ratios: Tensor,
-        multi_scale_features_maps: tuple[Tensor],
+        all_scales_layers_batch_reid_features: Tensor,
         all_layers_batch_assigned_person_ids: Tensor,
         data_samples: ReIDDetSampleList,
     ) -> dict[str, Tensor]:
@@ -414,22 +402,13 @@ class PSTRHeadReID(BaseModule):
         Compute the ReID losses (OIM and Triplet, the former if set).
 
         Args:
-            detection_decoder_states (Tensor): The outputs of detector which
-                have one in inference and 3 (number of decoder layers) in
-                training. (n_decoder_layers, bs, n_queries, n_dim_det)
-            references (Tensor): References point from deformable attention.
-                (n_decoder_layers, bs, n_queries, 4)
-            spatial_shapes (Tensor): The dimension of features maps used in
-                detection, before flattening. (n_used_detection, 2)
-            valid_ratios (Tensor): Valid ratios of detections, in case some are
-                annotatated to be ignored. (bs, ratio_dim, 2).
-            multi_scale_features_maps (tuple[Tensor]): The features maps
-                from the backbone/neck. A n_scales-tuple, each element
-                is (bs, n_dim_neck, x_dim, y_dim).
-            all_layers_batch_assigned_person_ids (Tensor): Result of the
-                the matching from assigner, 0 is not assigned and other value
-                the person ID assigned to it (-1 is for detection kept but no
-                ReID annotations) (n_decoder_layers, bs, n_queries)
+            all_scales_layers_batch_reid_features Tensor
+            (n_layers, bs, n_queries):
+                Assigned person_ids for each decoder_layer, query, sample.
+                Value is 0 if not assigned, else has the person id as value.
+                -1 for detections with no person ids.
+            all_layers_batch_assigned_person_ids: Tensor
+            (n_scales, n_layers, bs, n_queries, n_features)
             data_samples (ReIDDetSampleList): List of annotations, length
                 equals to batch_size.
 
@@ -437,26 +416,20 @@ class PSTRHeadReID(BaseModule):
             dict[str, Tensor]: The keys are the loss based on the input
             (scales and decoder outputs) and value is the loss value.
         """
+        all_scales_layers_batch_reid_loss: dict[str, Tensor] = dict()
 
-        # (num_layers, num_scales, batch_size, num_queries, n_features)
-        all_layers_all_scales_batch_reid_features = torch.stack(
-            self.forward(
-                detection_decoder_states,
-                references,
-                spatial_shapes,
-                valid_ratios,
-                multi_scale_features_maps,
-            )).permute((1, 0, 2, 3, 4))
+        n_layers = all_scales_layers_batch_reid_features.shape[0]
 
-        all_layers_all_scales_batchreid_loss: dict[str, Tensor] = dict()
+        # (n_layers, n_scales, bs, n_queries, n_dim_features)
+        all_layers_scales_batch_reid_features = (
+            all_scales_layers_batch_reid_features.permute(1, 0, 2, 3, 4))
 
-        num_layers = all_layers_all_scales_batch_reid_features.shape[0]
-        for i_layer in reversed(range(num_layers)):
-            all_layers_all_scales_batchreid_loss |= self.loss_single_layer(
-                all_layers_all_scales_batch_reid_features[i_layer],
+        for i_layer in reversed(range(n_layers)):
+            all_scales_layers_batch_reid_loss |= self.loss_single_layer(
+                all_layers_scales_batch_reid_features[i_layer],
                 all_layers_batch_assigned_person_ids[i_layer],
                 data_samples,
                 i_layer,
             )
 
-        return all_layers_all_scales_batchreid_loss
+        return all_scales_layers_batch_reid_loss
