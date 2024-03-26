@@ -87,3 +87,7 @@ test_dataloader = dict(
         pipeline=test_pipeline,
     ),
 )
+
+# val_evaluator = test_evaluator
+# test_dataloader = test_dataloader
+# val_cfg = test_cfg

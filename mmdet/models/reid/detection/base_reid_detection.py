@@ -1,7 +1,7 @@
 from abc import ABCMeta, abstractmethod
 from typing import TypeAlias
 
-from mmengine.model import BaseModel
+from mmengine.model import BaseModel  # type: ignore
 from torch import Tensor
 
 from mmdet.models.detectors import BaseDetector
@@ -123,8 +123,8 @@ class BaseReIDDetection(BaseModel, metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def predict(self, inputs: Tensor,
-                data_samples: ReIDDetSampleList) -> list[ReIDDetInstanceData]:
+    def predict(self, inputs: Tensor, data_samples: ReIDDetSampleList,
+                *args) -> list[ReIDDetInstanceData]:
         """Predict results from a batch of inputs and data samples with post-
         processing."""
         pass
