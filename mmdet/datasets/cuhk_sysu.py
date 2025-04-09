@@ -26,16 +26,16 @@ class CUHK_SYSU(BaseDataset):
         ]
 
         # NOTE: sorted makes the order consistant between runs.
-        unique_sorted_original_person_ids = sorted(set(original_person_ids))
+        unique_sorted_original_person_ids: list[int] = sorted(set(original_person_ids))
         self.original_to_adjusted_person_ids: dict[int, int] = {
             # +1 because person IDs start at 1
             original_person_id: adjusted_person_id + 1
             for adjusted_person_id, original_person_id in enumerate(
                 unique_sorted_original_person_ids)
         }
+
         # NOTE: Unassigned person ID value stays the same.
-        # A model can rely on this -1 value to differentiate detections
-        # with or without ReID annotations.
+        # -1 value for detection-only annotations (no ReID information)
         self.original_to_adjusted_person_ids[-1] = -1
 
     # kwargs are arguments of the base class.

@@ -4,7 +4,7 @@
 # IMPORTANT:
 # - test_evaluator is used to output pickles
 # - val_evaluator is used to evaluate the pickles (not used during training)
-data_root = "/dataset"
+data_root = "data/csu"
 test_cfg = dict(type='TestLoop')
 
 test_evaluator = dict(
@@ -63,13 +63,13 @@ dataset_type = "CUHK_SYSU"
 num_workers = 2
 train_dataloader = dict(
     shuffle=True,
-    batch_size=8,
+    batch_size=4,
     num_workers=num_workers,
     pin_memory=True,
     dataset=dict(
         type=dataset_type,
         filter_cfg=dict(filter_empty_gt=False),
-        ann_file="annotations/train_sysu.json",
+        ann_file="annotations/train.json",
         data_root=data_root,
         pipeline=train_pipeline,
     ),
@@ -82,7 +82,7 @@ test_dataloader = dict(
     dataset=dict(
         type=dataset_type,
         filter_cfg=dict(filter_empty_gt=False),
-        ann_file="annotations/test_sysu.json",
+        ann_file="annotations/test.json",
         data_root=data_root,
         pipeline=test_pipeline,
     ),

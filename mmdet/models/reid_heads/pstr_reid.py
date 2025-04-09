@@ -323,10 +323,11 @@ class PSTRHeadReID(BaseModule):
             return {oim_loss_key: loss_oim}
 
         # In PSTR version, the triplet loss module is designed to remove
-        # unlabeled detection. In the current, it's not designed for this.
+        # unlabeled detection. In the current loss module, it's not the case.
         # So we manage here:
         # (1) we need more 2 different reid_labels, else equals 0
-        # (2) we need input positive example only.
+        # (2) we need label for batch assigned and their version in the LookUp 
+        # table. So, twice more labels.
         num_positives = len(
             set(person_id
                 for person_id in only_assigned_person_ids.cpu().tolist()
