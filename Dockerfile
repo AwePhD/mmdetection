@@ -31,11 +31,6 @@ ENV PIP_ARGS="--no-cache-dir"
 RUN pip install ${PIP_ARGS} --upgrade pip setuptools
 RUN pip install ${PIP_ARGS} "mmengine>=0.7.1" "mmcv>=2.0.0rc4"
 
-COPY . .
-ARG COMMIT
-RUN echo "Training with commit: ${COMMIT}" && \
-    git checkout --force ${COMMIT} && \
-    pip install --no-cache-dir -e .
 # ------------------- (END) BUILD MMDET/MMCV --------------------
 
 
@@ -66,9 +61,10 @@ ENV SITE_PACKAGES="/opt/conda/lib/python3.10/site-packages"
 COPY --from=build ${SITE_PACKAGES}/mmcv ${SITE_PACKAGES}/mmcv
 COPY --from=build ${SITE_PACKAGES}/mmcv-2.1.0.dist-info ${SITE_PACKAGES}/mmcv-2.1.0.dist-info
 COPY --from=build ${SITE_PACKAGES}/mmengine ${SITE_PACKAGES}/mmengine
-COPY --from=build ${SITE_PACKAGES}/mmengine-0.10.2.dist-info ${SITE_PACKAGES}/mmengine-0.10.2.dist-info
-COPY --from=build ${SITE_PACKAGES}/mmdet.egg-link ${SITE_PACKAGES}/mmdet.egg-link
-COPY --from=build /workspace /workspace
 
-RUN pip install ${PIP_ARGS} -e . 
+COPY . .
+ARG COMMIT
+RUN echo "Training with commit: ${COMMIT}" && \
+    git checkout --force ${COMMIT} && \
+    pip install --no-cache-dir -e .
 # ------------------- (END) TRAIN ENVIRONNEMENT -----------------

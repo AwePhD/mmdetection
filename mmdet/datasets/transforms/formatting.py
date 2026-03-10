@@ -8,12 +8,8 @@ from mmcv.transforms.base import BaseTransform
 from mmengine.structures import InstanceData, PixelData
 
 from mmdet.registry import TRANSFORMS
-from mmdet.structures import (
-    DetDataSample,
-    ReIDDataSample,
-    TrackDataSample,
-    ReIDDetDataSample,
-)
+from mmdet.structures import (DetDataSample, ReIDDataSample, ReIDDetDataSample,
+                              TrackDataSample)
 from mmdet.structures.bbox import BaseBoxes
 
 
@@ -615,20 +611,15 @@ class PackReIDDetInputs(BaseTransform):
     The ``img_meta`` item is always populated.  The contents of the
     ``img_meta`` dictionary depends on ``meta_keys``. By default this includes:
 
-        - ``img_label``: id of the image (compliant with openmmlab 2.0 annotations)
-
+        - ``img_label``: id of the image (compliant with openmmlab 2.0
+            annotations)
         - ``img_path``: path to the image file
-
         - ``ori_shape``: original shape of the image as a tuple (h, w)
-
         - ``img_shape``: shape of the image input to the network as a tuple \
             (h, w).  Note that images may be zero padded on the \
             bottom/right if the batch tensor is larger than this shape.
-
         - ``scale_factor``: a float indicating the preprocessing scale
-
         - ``flip``: a boolean indicating if image flip transform was used
-
         - ``flip_direction``: the flipping direction
 
     Args:
@@ -654,6 +645,7 @@ class PackReIDDetInputs(BaseTransform):
         "gt_bboxes": "bboxes",
         "gt_bboxes_labels": "labels",
         "gt_bboxes_person_ids": "reid_labels",
+        "eval_types": "eval_types",
     }
 
     def __init__(self, meta_keys=DEFAULT_META_KEYS):
@@ -734,8 +726,8 @@ class PackReIDDetInputs(BaseTransform):
         Returns:
             dict:
             - 'inputs' (obj:`torch.Tensor`): The forward data of models.
-            - 'data_sample' (obj:`ReIDDetDataSample`): The annotation info of the
-                sample.
+            - 'data_sample' (obj:`ReIDDetDataSample`): The annotation info of
+                the sample.
         """
         img = self._get_img(results)
 

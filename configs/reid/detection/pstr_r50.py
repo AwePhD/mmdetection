@@ -1,21 +1,16 @@
 _base_ = [
     "../../_base_/default_runtime.py",
     "../../_base_/datasets/cuhk_sysu.py",
+    # "../../_base_/debug.py",
 ]
 
+num_scales_detection = 1
 detector = dict(
     type="DeformableDETR",
     num_queries=100,
-    num_feature_levels=1,
+    num_feature_levels=num_scales_detection,
     with_box_refine=False,
     as_two_stage=False,
-    data_preprocessor=dict(
-        type="DetDataPreprocessor",
-        mean=[123.675, 116.28, 103.53],
-        std=[58.395, 57.12, 57.375],
-        bgr_to_rgb=True,
-        pad_size_divisor=1,
-    ),
     backbone=dict(
         type="ResNet",
         depth=50,
@@ -35,11 +30,17 @@ detector = dict(
         in_channels=[512, 1024, 2048],
         out_channels=256,
     ),
+    # NOTE: The organization is different but it's the same of PSTR.
+    # PSTR used custom `BaseTransformerLayer` to perform what a
+    # `DeformableDetrTransformerEncoderLayer` does. The type was
+    # `DetrTransformerEncoder` but performs what a
+    # `DeformableDetrTransformerEncoder` does with all the code added
+    # in PSTR's head forward. (with num_levels=1 equivalence).
     encoder=dict(  # DeformableDetrTransformerEncoder
         num_layers=3,
         layer_cfg=dict(  # DeformableDetrTransformerEncoderLayer
             self_attn_cfg=dict(  # MultiScaleDeformableAttention
-                num_levels=1,
+                num_levels=num_scales_detection,
                 embed_dims=256,
             ),
             ffn_cfg=dict(
@@ -49,6 +50,7 @@ detector = dict(
             ),
         ),
     ),
+    # NOTE: Similar of the encoder's NOTE.
     decoder=dict(  # DeformableDetrTransformerDecoder
         num_layers=3,
         return_intermediate=True,
@@ -60,7 +62,7 @@ detector = dict(
             ),
             cross_attn_cfg=dict(  # MultiScaleDeformableAttention
                 embed_dims=256,
-                num_levels=1,
+                num_levels=num_scales_detection,
             ),
             ffn_cfg=dict(
                 embed_dims=256,
@@ -100,26 +102,38 @@ reid = dict(  # PSTRHeadReID
             batch_first=True,
         ),
     ),
-    num_person=7792,
-    flag_tri=True,
-    queue_size=5000)
+    num_person=7791,
+    queue_size=5000,
+    temperature=15,
+    unlabeled_weight=10,
+    oim_weight=0.5,
+    triplet_loss=dict(
+        type="TripletLoss",
+        margin=.3,  # Default
+        loss_weight=.5,
+        hard_mining=True,  # Default
+    ))
 
-model = dict(type="PSTR", detector=detector, reid=reid)
-
-model["train_cfg"] = dict(
-    assigner=dict(
-        type="HungarianAssigner",
-        match_costs=[
-            dict(type="FocalLossCost", weight=2.0),
-            dict(type="BBoxL1Cost", weight=5.0, box_format="xywh"),
-            dict(type="IoUCost", iou_mode="giou", weight=2.0),
-        ]))
-model["data_preprocessor"] = dict(
-    type="DetDataPreprocessor",
-    mean=[123.675, 116.28, 103.53],
-    std=[58.395, 57.12, 57.375],
-    bgr_to_rgb=True,
-    pad_size_divisor=1)
+model = dict(
+    type="PSTR",
+    detector=detector,
+    reid=reid,
+    test_cfg=_base_.test_cfg,
+    train_cfg=dict(
+        assigner=dict(
+            type="HungarianAssigner",
+            match_costs=[
+                dict(type="FocalLossCost", weight=2.0),
+                dict(type="BBoxL1Cost", weight=5.0, box_format="xywh"),
+                dict(type="IoUCost", iou_mode="giou", weight=2.0),
+            ])),
+    data_preprocessor=dict(
+        type="DetDataPreprocessor",
+        mean=[123.675, 116.28, 103.53],
+        std=[58.395, 57.12, 57.375],
+        bgr_to_rgb=True,
+        pad_size_divisor=1)
+    )
 
 optim_wrapper = dict(
     type="OptimWrapper",
@@ -138,8 +152,6 @@ optim_wrapper = dict(
 
 max_epochs = 24
 train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs)
-# TODO Change when training is ok
-test_cfg = None
 
 param_scheduler = [
     # Warmup
@@ -149,8 +161,8 @@ param_scheduler = [
         end_factor=1,
         by_epoch=False,
         begin=0,
-        end=63, # 500 // 8 (sysu batch size) + 1
-        # end=(500 // batch_size) + 1, # 500 samples ~= 500 / batch_size iterations
+        end=63,  # 500 // 8 (sysu batch size) + 1
+        # end=(500 // batch_size) + 1, 500 samples ~= 500/batch_size iterations
     ),
     # Epoch update
     dict(type='MultiStepLR', milestones=[19, 23], gamma=0.1)

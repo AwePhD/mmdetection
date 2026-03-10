@@ -1,9 +1,23 @@
-from typing import Protocol
+from typing import Protocol, Literal, TypeAlias
 
 from mmengine.structures import BaseDataElement, InstanceData
 from torch import LongTensor
+from typing_extensions import NotRequired
 
 from mmdet.structures.bbox import HorizontalBoxes
+
+# NOTE: Tensor in Instance data does not accept string values such as "query"
+# or "gallery". So query evaluation annotations are set to True, else (gallery)
+# are set to false. Since this mapping might seem confusing, we type it.
+EvalTypeQuery: TypeAlias = Literal[True]
+EvalTypeGallery: TypeAlias = Literal[False]
+EvalType: TypeAlias = EvalTypeQuery | EvalTypeGallery
+
+
+def get_eval_type_from_str(eval_type: str) -> EvalType:
+    assert eval_type in ("query", "gallery")
+
+    return eval_type == "query"
 
 
 class ReIDDetInstanceData(Protocol):
@@ -16,14 +30,19 @@ class ReIDDetInstanceData(Protocol):
     instead of a classic list of InstanceData which is not consistent with
     the rest of mmdet. We might update the annotations from this base method
     later and keep this protocol as implicit.
+    TODO: Do one protocol for GT and another one for prediction. The instance
+    does not the same fields inside them.
     """
     # Detection labels, the name is confusing but we keep to be compatible
     # with existing Detector in mmdet.
     labels: LongTensor
     #: The person IDs
     reid_labels: LongTensor
-    #: The detections
-    bboxes: HorizontalBoxes
+    #: The detections, some annotations in the test set do not have detections
+    #: (SYSU).
+    bboxes: NotRequired[HorizontalBoxes]
+    #: Only inside the SYSU evaluation annotations on gt.
+    eval_type: NotRequired[EvalType]
 
 
 class ReIDDetDataSample(BaseDataElement):
